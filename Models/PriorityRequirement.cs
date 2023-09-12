@@ -1,0 +1,1 @@
+public record PriorityRequirement(string ClassNumber, int Day);
