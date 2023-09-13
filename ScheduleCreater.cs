@@ -10,25 +10,17 @@ public class ScheduleCreater
     public void CreateSchedule()
     {
         // Read CSV files
-        var teachers = GetTeachers();
+        var classes = GetClasses();
         var specialistRequirements = GetSpecialistRequirements();
+        var specialistTeachers = GetSpecialistTeachers();
 
         // Initialize the schedule
         var schedules = new Dictionary<string, List<List<SpecialistAvailability?>>>();
-        // List all assigned teachers
-        var assignedTeachers = teachers.Where(t => t.Type == TeacherType.Teacher).ToList();
         // Get all priority assignments
-        var priorityRequirements = GetPriorityRequirements(teachers);
+        var priorityRequirements = GetPriorityRequirements(classes);
 
-        // Get a List of classes
-        // TODO: Maybe we can review this and use an explicit list of class?
-        var classes = specialistRequirements
-            .GroupBy(sr => sr.ClassNumber)
-            .Select(grp => grp.Key)
-            .ToList();
-
-        // Generate empty schedule
-        foreach (var classNumber in classes)
+        // Generate empty schedule for each class
+        foreach (var classNumber in classes.Select(c => c.ClassNumber))
         {
             schedules[classNumber] = Enumerable.Range(0, MAX_NUMBER_OF_DAYS).Select(day =>
             {
@@ -39,25 +31,11 @@ public class ScheduleCreater
             }).ToList();
         }
 
-        // var expandedSpecialistRequirements = new List<SpecialistRequirement>();
-        // specialistRequirements.ForEach(sr =>
-        // {
-        //     for (int i = 0; i < sr.WeeklyRequirement; i++)
-        //     {
-        //         expandedSpecialistRequirements.Add(new SpecialistRequirement
-        //         {
-        //             ClassNumber = sr.ClassNumber,
-        //             Specialty = sr.Specialty,
-        //             WeeklyRequirement = 1,
-        //         });
-        //     }
-        // });
-
-        // Create a flat list of requirements by duplicating it the number of time a week it is needed.
+        // Create a flat list of all the requirements for easier processing
         var flattenedSpecialistRequirements = FlattenSpecialistRequirements(specialistRequirements);
 
         var specialistAvailabilities = new List<SpecialistAvailability>();
-        teachers.Where(t => t.Type == TeacherType.Specialist).ToList().ForEach(t =>
+        specialistTeachers.ForEach(t =>
         {
             for (int i = 0; i < t.Schedule.Count; i++)
             {
@@ -91,23 +69,23 @@ public class ScheduleCreater
         }
     }
 
-    List<Teacher> GetTeachers()
+    List<Class> GetClasses()
     {
-        var filePath = "/home/paulraph/projects/specialist-class-scheduling/MockData/teachers.csv";
-        Console.WriteLine($"Reading Teachers at {filePath}");
+        var filePath = "/home/paulraph/projects/specialist-class-scheduling/MockData/classes.csv";
+        Console.WriteLine($"Reading Classes at {filePath}");
 
         using var reader = new StreamReader(filePath);
         using var csv = new CsvReader(reader, CultureInfo.InvariantCulture);
-        csv.Context.RegisterClassMap<TeacherMapper>();
-        var teachers = csv.GetRecords<Teacher>().ToList();
+        csv.Context.RegisterClassMap<ClassMapper>();
+        var classes = csv.GetRecords<Class>().ToList();
 
-        Console.WriteLine($"Found {teachers.Count} teacher(s)");
-        return teachers;
+        Console.WriteLine($"Found {classes.Count} class(es)");
+        return classes;
     }
 
     List<SpecialistRequirement> GetSpecialistRequirements()
     {
-        var filePath = "/home/paulraph/projects/specialist-class-scheduling/MockData/specialist_requirements.csv";
+        var filePath = "/home/paulraph/projects/specialist-class-scheduling/MockData/requis_specialistes.csv";
         Console.WriteLine($"Reading Specialist Requirements at {filePath}");
 
         using var reader = new StreamReader(filePath);
@@ -121,9 +99,27 @@ public class ScheduleCreater
         return specialistRequirements;
     }
 
-    private List<SpecialistRequirement> FlattenSpecialistRequirements(List<SpecialistRequirement> specialistRequirements) {
+    List<SpecialistTeacher> GetSpecialistTeachers()
+    {
+        var filePath = "/home/paulraph/projects/specialist-class-scheduling/MockData/specialistes.csv";
+        Console.WriteLine($"Reading Specialists at {filePath}");
+
+        using var reader = new StreamReader(filePath);
+        using var csv = new CsvReader(reader, CultureInfo.InvariantCulture);
+        csv.Context.RegisterClassMap<SpecialistTeacherMapper>();
+
+        var specialistTeachers = csv.GetRecords<SpecialistTeacher>().ToList();
+
+        Console.WriteLine($"Found {specialistTeachers.Count} specialist requirement(s)");
+
+        return specialistTeachers;
+    }
+
+    private List<SpecialistRequirement> FlattenSpecialistRequirements(List<SpecialistRequirement> specialistRequirements)
+    {
         return specialistRequirements
-            .SelectMany(requirement => Enumerable.Range(0, requirement.WeeklyRequirement).Select(_ => new SpecialistRequirement{
+            .SelectMany(requirement => Enumerable.Range(0, requirement.WeeklyRequirement).Select(_ => new SpecialistRequirement
+            {
                 ClassNumber = requirement.ClassNumber,
                 Specialty = requirement.Specialty,
                 WeeklyRequirement = 1,
@@ -131,13 +127,11 @@ public class ScheduleCreater
             .ToList();
     }
 
-    private List<PriorityRequirement> GetPriorityRequirements(List<Teacher> teachers)
+    private List<PriorityRequirement> GetPriorityRequirements(List<Class> classes)
     {
-        return teachers
-            .Where(t => t.Type == TeacherType.Teacher)
-            .Where(t => t.Liberation != null)
-            .Where(t => t.AssignedClass != null)
-            .Select(t => new PriorityRequirement(t.AssignedClass!, t.Liberation!.Value))
+        return classes
+            .Where(c => c.Liberations.Any())
+            .SelectMany(c => c.Liberations.Select(liberation => new PriorityRequirement(c.ClassNumber, liberation)))
             .ToList();
     }
 
@@ -249,17 +243,29 @@ public class ScheduleCreater
                 var worksheet = excel.Workbook.Worksheets.Add(classNumber);
 
                 // Add headers for days and periods
-                string[] days = { "Day1", "Day2", "Day3", "Day4", "Day5" };
-                string[] periods = { "Period1", "Period2", "Period3", "Period4", "Period5" };
+                string[] days = { "Jour 1", "Jour 2", "Jour 3", "Jour 4", "Jour 5" };
+                string[] periods = { "Période 1", "Période 2", "Période 3", "Période 4", "Période 5" };
+
+                // HEADERS
+                worksheet.Cells[1, 1].Value = classNumber;
+                worksheet.Cells[1, 1].Style.Font.Bold = true;
+                worksheet.Cells[1, 1].Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+                worksheet.Cells[1, 1].Style.Fill.BackgroundColor.SetColor(1, 204, 204, 204);
 
                 for (int i = 0; i < days.Length; i++)
                 {
                     worksheet.Cells[1, i + 2].Value = days[i];
+                    worksheet.Cells[1, i + 2].Style.Font.Bold = true;
+                    worksheet.Cells[1, i + 2].Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+                    worksheet.Cells[1, i + 2].Style.Fill.BackgroundColor.SetColor(1, 204, 204, 204);
                 }
 
                 for (int i = 0; i < periods.Length; i++)
                 {
                     worksheet.Cells[i + 2, 1].Value = periods[i];
+                    worksheet.Cells[i + 2, 1].Style.Font.Bold = true;
+                    worksheet.Cells[i + 2, 1].Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+                    worksheet.Cells[i + 2, 1].Style.Fill.BackgroundColor.SetColor(1, 204, 204, 204);
                 }
 
                 // Fill in the schedule
@@ -267,13 +273,23 @@ public class ScheduleCreater
                 {
                     for (int period = 0; period < schedule[day].Count; period++)
                     {
-                        var cellValue = schedule[day][period]?.Name ?? "None";
+                        var cellValue = schedule[day][period]?.Name ?? "";
                         worksheet.Cells[period + 2, day + 2].Value = cellValue;
+
+                        if (!string.IsNullOrEmpty(cellValue))
+                        {
+                            worksheet.Cells[period + 2, day + 2].Style.Fill.PatternType = OfficeOpenXml.Style.ExcelFillStyle.Solid;
+                            worksheet.Cells[period + 2, day + 2].Style.Fill.BackgroundColor.SetColor(1, 230, 242, 255);
+                        }
 
                         // Optional: Add color coding or other formatting here
                     }
                 }
+
+                worksheet.Cells[worksheet.Dimension.Address].AutoFitColumns();
             }
+
+
 
             // Save the Excel file
             string timestamp = DateTime.Now.ToString("yyyyMMddHHmmss");

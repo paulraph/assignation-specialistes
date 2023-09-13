@@ -1,22 +1,21 @@
 using CsvHelper.Configuration;
 
-public class TeacherMapper : ClassMap<Teacher>
+public class SpecialistTeacherMapper : ClassMap<SpecialistTeacher>
 {
-    public TeacherMapper()
+    public SpecialistTeacherMapper()
     {
         Map(m => m.Name).Name("Nom");
-        Map(m => m.Type).Convert(row => row.Row.GetField<string>("Type") switch
-            {
-                "s" => TeacherType.Specialist,
-                "t" => TeacherType.Teacher,
-                _ => TeacherType.Teacher,
-            }
-        );
         Map(m => m.Specialty).Name("Specialité");
-        Map(m => m.AssignedClass).Name("Classe Assignée");
         Map(m => m.Schedule).Convert(map =>
         {
-            var columns = new string[] { "Jour 1", "Jour 2", "Jour 3", "Jour 4", "Jour 5" };
+            var columns = new string[] 
+            {
+                "Disponibilité Jour 1",
+                "Disponibilité Jour 2",
+                "Disponibilité Jour 3",
+                "Disponibilité Jour 4",
+                "Disponibilité Jour 5",
+            };
             var schedule = new List<List<int>>();
             for (int i = 0; i < columns.Length; i++)
             {
@@ -29,6 +28,6 @@ public class TeacherMapper : ClassMap<Teacher>
 
             return schedule;
         });
-        Map(m => m.Liberation).Name("Liberation");
+        Map(m => m.Notes);
     }
 }
